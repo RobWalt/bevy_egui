@@ -251,32 +251,35 @@ impl EguiClipboard {
     fn get_contents_impl(&mut self) -> Option<String> {
         use arboard::GetExtLinux;
 
-        if let Some(mut clipboard) = self.get() {
-            let mut get_text =
-                |kind: arboard::LinuxClipboardKind| -> Result<String, arboard::Error> {
-                    clipboard.get().clipboard(kind).text()
-                };
-            let text = get_text(arboard::LinuxClipboardKind::Clipboard)
-                .map_err(|e1| vec![e1.to_string()])
-                .or_else(|mut e| {
-                    get_text(arboard::LinuxClipboardKind::Primary).map_err(|e2| {
-                        e.push(e2.to_string());
-                        e
-                    })
-                })
-                .or_else(|mut e| {
-                    get_text(arboard::LinuxClipboardKind::Secondary).map_err(|e3| {
-                        e.push(e3.to_string());
-                        e
-                    })
-                })
-                .map_err(|e| e.join("\n"));
-            match text {
-                Ok(contents) => return Some(contents),
-                Err(err) => log::error!("Failed to get clipboard contents: {err}"),
+        self.get().and_then(|mut clipboard| {
+            let get_text = |kind: arboard::LinuxClipboardKind| -> Result<String, arboard::Error> {
+                clipboard
+                    .get()
+                    .clipboard(kind)
+                    .text()
+                    .map(|text| format!("{kind:?}: {text}"))
+            };
+            let (texts, errs) = [
+                arboard::LinuxClipboardKind::Clipboard,
+                arboard::LinuxClipboardKind::Primary,
+                arboard::LinuxClipboardKind::Secondary,
+            ]
+            .map(get_text)
+            .into_iter()
+            .fold((vec![], vec![]), |(mut oks, mut errs), res| {
+                match res {
+                    Ok(ok) => oks.push(ok),
+                    Err(err) => errs.push(err),
+                }
+                (oks, errs)
+            });
+
+            if texts.is_empty() {
+                log::error!("Failed to get clipboard contents: {errs:?}");
             }
-        };
-        None
+
+            (!texts.is_empty()).then(|| texts.join("\n\n"))
+        })
     }
 
     #[cfg(all(target_arch = "wasm32", web_sys_unstable_apis))]
