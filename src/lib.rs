@@ -249,10 +249,31 @@ impl EguiClipboard {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn get_contents_impl(&mut self) -> Option<String> {
+        use arboard::GetExtLinux;
+
         if let Some(mut clipboard) = self.get() {
-            match clipboard.get_text() {
+            let mut get_text =
+                |kind: arboard::LinuxClipboardKind| -> Result<String, arboard::Error> {
+                    clipboard.get().clipboard(kind).text()
+                };
+            let text = get_text(arboard::LinuxClipboardKind::Clipboard)
+                .map_err(|e1| vec![e1.to_string()])
+                .or_else(|mut e| {
+                    get_text(arboard::LinuxClipboardKind::Primary).map_err(|e2| {
+                        e.push(e2.to_string());
+                        e
+                    })
+                })
+                .or_else(|mut e| {
+                    get_text(arboard::LinuxClipboardKind::Secondary).map_err(|e3| {
+                        e.push(e3.to_string());
+                        e
+                    })
+                })
+                .map_err(|e| e.join("\n"));
+            match text {
                 Ok(contents) => return Some(contents),
-                Err(err) => log::error!("Failed to get clipboard contents: {:?}", err),
+                Err(err) => log::error!("Failed to get clipboard contents: {err}"),
             }
         };
         None
